@@ -1,0 +1,261 @@
+syntax = "proto3";
+
+package phxkv;
+
+service PhxKVServer {
+	rpc KvPut(KVOperator) returns (KVResponse) { }
+	rpc KvGet(KVOperator) returns (KVResponse) { }
+	rpc KvGetLocal(KVOperator) returns (KVResponse) { }
+	rpc KvDelete(KVOperator) returns (KVResponse) { }
+
+	rpc KvBatchPut (KvBatchPutRequest) returns (KvBatchPutResponse) {}
+  	rpc KvBatchGet (KvBatchGetRequest) returns (KvBatchGetResponse) {}
+  	rpc KvGetgroupList(GroupListReq) returns(GroupListRes){}
+
+	rpc KvDropMaster(DropMastReq) returns (DropMastRes){}
+  	rpc KvBeMaster(BemasterReq)returns (BemasterRes){}
+
+	//以下为hash接口
+
+	rpc HashOperate(Request) returns (Response) { }
+	rpc ListOperate(Request) returns (Response) { }
+	rpc SetOperate(Request) returns (Response) { }
+	rpc ZsetOperate(Request) returns (Response) { }
+}
+
+message DropMastReq{
+	//丢个数
+	int32 cnt=1;
+};
+message DropMastRes{
+	//0成功，-1失败 
+	int32 ret = 1;
+};
+
+message BemasterReq{
+	// 1开始抢  0 停止抢
+	int32 flag = 1;
+};
+
+message BemasterRes{
+	int32 ret = 1;
+};
+
+message GroupListReq
+{
+	//组的总数
+	int32 groupcnt = 1;
+};
+
+message GroupListRes
+{
+	//返回值，0成功，-1失败
+	int32 ret = 1;
+	GroupsMapMsg subMap = 2;
+};
+
+message KVOperator
+{
+	string key = 1;
+	bytes value = 2;
+	uint32 operator = 3;
+	uint32 groupid = 4;
+};
+
+
+message KVResponse
+{
+	bytes data = 1;
+	int32 ret = 2;
+	GroupsMapMsg subMap = 3;
+};
+
+//所有分组的master信息
+message GroupsMapMsg
+{
+	//接口的返回值,0成功，-1 失败
+	int32 ret = 1;
+	//多个group
+	repeated GroupMsg subGroup=2;
+};
+//单个分组master信息
+message GroupMsg
+{
+	//单个分组master信息，是否存在， 0存在，-1不存在
+	int32 ret = 1;
+	int32 groupid = 2;
+	bytes masterip=3;
+	int32 masterport=4;
+};
+//批量写操作
+
+message KvBatchPutRequest {
+  repeated KvBatchPutSubRequest subs = 1;
+  uint32 operator = 2;
+  uint32 groupid = 3;
+}
+
+message KvBatchPutSubRequest {
+  bytes key = 1;
+  bytes value = 2;
+   //不需要类型
+}
+
+message KvBatchPutResponse {
+  int32 ret = 1;
+  GroupsMapMsg subMap = 2;
+}
+
+//批量读操作
+message KvBatchGetRequest {
+  repeated KvBatchGetSubRequest subs = 1;
+  uint32 operator = 2;
+  uint32 groupid = 3;
+}
+
+message KvBatchGetSubRequest {
+  bytes key = 1;
+}
+
+message KvBatchGetResponse {
+  int32 ret = 1;
+  repeated KvBatchGetSubResponse values = 2;
+  GroupsMapMsg subMap = 3;
+}
+
+message KvBatchGetSubResponse {
+  int32 ret = 1;
+  bytes key = 2;
+  bytes value = 3;
+  bytes data = 4;
+}
+
+message KVMessage{
+	enum Type {SingleMsg =0; BatchMsg=1;RequestMsg=2;}
+	Type type = 1;
+	 KVOperator PutOpt=2;
+	 KvBatchPutRequest BatchPutOpt=3;
+	 Request RequestOpt=4;
+}
+
+
+
+//==========================================
+message Request
+{
+    uint32 groupid = 1;
+    enum req_type { HASH_REQ=0;LIST_REQ=1;SET_REQ=2;ZSET_REQ=3;EXPIRE_REQ=4;DEL_KEY_REQ=5; }
+    req_type data_type=2;//支持类型操作和支持key级别操作，区分是哪种操作类型
+    bytes key=3;
+    uint32 ttl=4;
+    HashRequest hash_req=5;
+	ListRequest list_req=6;
+	SetRequest set_req=7;
+	ZsetRequest zset_req=8;
+};
+message HashRequest
+{
+    //对外提供一个接口，通过enum区分15种操作类型。
+    enum enum_req {HASH_START=0;HASH_DEL=1;HASH_GET=2;HASH_GETALL=3;HASH_SET=4;HASH_EXISTS=5;HASH_INCR_INT=6;
+                    HASH_INCR_FLOAT=7;HASH_KEYS=8;HASH_LEN=9;HASH_MGET=10;HASH_MSET=11;HASH_SETNX=12;
+                    HASH_VALUES=13; }
+    repeated HashField field=1;
+    int32 int_value=2;//int field_value 增大或减小的值。
+    float float_value=3;// float field_value 增大或减小的值
+    enum_req req_type = 4;//请求类型
+};
+message HashField
+{
+    bytes field_key=1;//由代理部分按存储结构拼接后的key
+    bytes field_value=2;//需要将数值型value转化为字符串，如12转化为“12”进行存储。以支持HashIncrByNum。
+}
+message Response{
+    enum enum_code {RES_SUCC = 0;RES_KEY_NOTEXIST = 1;RES_SERVER_BUSY=2;
+					PARAM_ERROR=3;META_NOTEXIST=4;ROCKSDB_ERR=5;RES_KEY_EXISTS=6;
+					RES_MASTER_REDIRECT = 10;RES_NO_MASTER = 101;RES_ERR=-1;}
+    enum_code ret_code = 1;//返回值类型
+    bytes ret_message = 2;//错误消息
+    uint64 length=3;//长度
+    bool exist=4; //是否存在key
+     
+    enum response_type {STRING_RES=0;HASH_RES=1;LIST_RES=2;SET_RES=3;ZSET_RES=4;}
+    response_type data_type=5;//返回响应类型
+	
+	GroupsMapMsg subMap = 6;//集群信息
+    HashResponse hash_response=7;//
+	ListResponse list_response=8;//
+	SetResponse set_response=9;//
+	ZsetResponse zset_response=10;//
+};
+message HashResponse
+{
+    repeated HashField field=4;
+};
+
+
+message ListRequest
+{  
+	enum enum_req {LIST_LPOP=0;LIST_RPOP=1;LIST_RPOP_LPUSH=2;LIST_INDEX=3;LIST_INSERT=4;
+					LIST_LENGTH=5;LIST_LPUSH=6;LIST_LPUSHX=7;LIST_RANGE=8;LIST_REM=9;LIST_RPUSH=10;
+					LIST_RPUSHX=11;LIST_SET=12;LIST_TRIM=13; }
+    enum_req req_type = 1;//请求类型
+	repeated bytes field=2;
+    int32 start=3;//开始位置
+    int32 end=4;//结束位置。
+	int32 index=5;//索引位置
+	int32 count=6;
+	int32 pos_flag=7;//插入field之前还是之后
+	bytes pivot=8;//
+	bytes src_list =9;//将一个列表的数据保存到另一个列表中
+}
+ 
+message ListResponse
+{
+    repeated bytes field=1;//字段数据
+}
+
+message SetRequest
+{  
+	enum enum_req {SET_ADD=0;SET_REM=1;SET_CARD=2;SET_MEMBERS=3;SET_UNONSTORE=4;
+					SET_UNION=5;SET_INTERSTORE=6;SET_INTER=7;SET_DIFFSTORE=8;SET_DIFF=9;SET_ISMEMBER=10;
+					SET_POP=11;SET_RANDMEMBER=12;SET_MOVE=13; }
+    enum_req req_type = 1;//请求类型
+	repeated bytes field=2;//请求字段
+	repeated bytes src_set=3;//给定集合
+}
+ 
+message SetResponse
+{
+    repeated bytes field=1;//字段数据
+}
+
+message ZsetRequest
+{
+	enum enum_req {ZSET_ADD=0;ZSET_CARD=1;ZSET_COUNT=2;ZSET_INCRBY=3;ZSET_RANGE=4;
+					ZSET_UNIONSTORE=5;ZSET_INTERSTORE=6;ZSET_RANGEBYSCORE=7;ZSET_REM=8;
+					ZSET_RANK=9;
+					ZSET_REVRANK=10;ZSET_SCORE=11;ZSET_REVRANGE=12;ZSET_REVRANGEBYSCORE=13;ZSET_REM_RANGEBYRANK=14;ZSET_REM_RANGEBYSCORE=15; }
+    enum_req req_type = 1;//请求类型
+	
+    repeated ZsetField field_key=2;//将实际的field key编码到存储的key中
+    repeated ZsetField field_score=3;//将实际的field score编码到存储的key中
+    int64 min = 4;//最小得分
+    int64 max=5;// 最大的得分
+    int64 incrscore=6;//增加的得分,int64,保留小数点后5位 10.78799转为1078799
+	repeated bytes src_set=7;//给定集合//unionstore时，用来存放原集合，保存到目的集合中
+    int64 start_pos=8;//开始位置区间
+    int64 end_pos=9;//结束位置区间
+	int64 offset = 10;//开始偏移量
+	int64 count = 11;//个数
+}
+message ZsetField
+{
+    bytes field_key=1;
+    bytes field_value=2;
+}
+message ZsetResponse
+{
+    repeated ZsetField field=1;
+	int64 mem_rank=2;//成员排名
+	int64 mem_score = 3;//成员分数,除10000
+}
